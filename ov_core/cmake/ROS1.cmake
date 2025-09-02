@@ -101,5 +101,12 @@ install(TARGETS test_profile
         RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
+add_executable(test_spline src/test_spline.cpp)
+target_link_libraries(test_spline ov_core_lib ${thirdparty_libraries})
+install(TARGETS test_spline
+        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 
