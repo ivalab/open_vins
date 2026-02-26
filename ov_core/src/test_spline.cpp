@@ -16,7 +16,11 @@
 
 #include "sim/BsplineSE3.h"
 #include "utils/dataset_reader.h"
+#include <boost/program_options.hpp>
+#include <boost/filesystem.hpp>
 
+namespace fs = boost::filesystem;
+namespace po = boost::program_options;
 using namespace ov_core;
 
 namespace internal {
@@ -53,21 +57,99 @@ void save(const std::string &filename, const std::vector<StampedPose> &poses) {
   }
   myfile.close();
 }
+
+struct Config
+{
+    std::string data_dir;
+    std::vector<std::string> sequences;
+};
+
+Config ParseArgs(int argc, char** argv)
+{
+    Config config;
+
+    po::options_description desc("Allowed options");
+    desc.add_options()
+        ("help,h", "Print help message")
+        ("data_dir,d", po::value<std::string>(&config.data_dir)->required(),
+            "Path to dataset directory")
+        ("sequences,s",
+            po::value<std::vector<std::string>>()->multitoken()->required(),
+            "Sequence names (space or comma separated)");
+
+    po::variables_map vm;
+
+    try
+    {
+        po::store(po::parse_command_line(argc, argv, desc), vm);
+
+        if (vm.count("help"))
+        {
+            std::cout << desc << std::endl;
+            std::exit(EXIT_SUCCESS);
+        }
+
+        po::notify(vm);
+
+        // Retrieve sequences
+        config.sequences = vm["sequences"].as<std::vector<std::string>>();
+//        config.sequences = SplitCommaSeparated(raw_sequences);
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Error: " << e.what() << "\n\n";
+        std::cerr << desc << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
+    return config;
+}
+
+// Find filename.
+std::string findFiles(const std::string& dir, const std::string& partialName) {
+    fs::path directory(dir);
+    if (!fs::exists(directory) || !fs::is_directory(directory)) return "";
+
+    for (fs::recursive_directory_iterator it(directory); it != fs::recursive_directory_iterator(); ++it) {
+        if (fs::is_regular_file(*it)) {
+            std::string filename = it->path().filename().string();
+            // Check if file ends with .txt and contains partial name
+            if (filename.find(partialName) != std::string::npos && it->path().extension() == ".txt") {
+                // std::cout << "Found: " << it->path() << std::endl;
+                return it->path().string();
+            }
+        }
+    }
+    return "";
+}
+
+
+
 } // namespace internal
 
 int main(int argc, char **argv) {
 
-  std::string data_root = "/mnt/IVALAB/rosbags/tsrb/GW_CL_SEQS/";
-  std::vector<std::string> seqnames{
+//  std::string data_root = "/mnt/IVALAB/rosbags/tsrb/GW_CL_SEQS/";
+//  std::vector<std::string> seqnames{
       // "20241012", "20250330", "20250331", "20250530", "20250619", "20250831_1", "20250831_2", "20250831_3",
-      "20250912_1",
-      "20250912_2",
-      "20250912_3",
-  };
+//      "20250912_1",
+//    "20250912_2",
+//    "20250912_3",
+// ;
 
-  for (const auto &seq_name : seqnames) {
+
+  internal::Config config = internal::ParseArgs(argc, argv);
+
+  for (const auto &seq_name : config.sequences) {
     std::cout << "Processing " << seq_name << "..." << "\n";
-    std::string filepath = data_root + "/" + seq_name + "/slam_toolbox/slam_toolbox_KeyFrameTrajectory.txt";
+    // std::string filepath = config.data_dir + "/" + seq_name + "/slam_toolbox/slam_toolbox_KeyFrameTrajectory.txt";
+    std::string seq_dir = config.data_dir + "/" + seq_name;
+    std::string partial_filename = "KeyFrameTrajectory.txt";
+    std::string filepath = internal::findFiles(seq_dir, partial_filename);
+    if (filepath.empty()) {
+        std::cout << seq_name << " does NOT contain any pose file for processing, SKIP! " << std::endl;
+        continue;
+    }
     // Load samples.
     std::vector<Eigen::VectorXd> samples;
     DatasetReader::load_simulated_trajectory(filepath, samples);
@@ -100,11 +182,15 @@ int main(int argc, char **argv) {
     }
 
     // Save poses.
+    std::string gt_dir = config.data_dir + "gt_poses/";
+    if (!fs::exists(fs::path(gt_dir))) {
+        fs::create_directories(fs::path(gt_dir));
+    }
     {
-      std::string outfile = data_root + "/gt_poses/" + seq_name + "_body.txt";
+      std::string outfile = gt_dir + "/" + seq_name + "_body.txt";
       internal::save(outfile, body_poses);
 
-      outfile = data_root + "/gt_poses/" + seq_name + "_cam0.txt";
+      outfile = gt_dir + "/" + seq_name + "_cam0.txt";
       internal::save(outfile, cam_poses);
     }
     std::cout << "Done!" << std::endl;
